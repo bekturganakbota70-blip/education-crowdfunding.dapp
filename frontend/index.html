@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Education Crowdfunding</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    .status { color: blue; margin: 10px 0; }
+  </style>
+</head>
+<body>
+
+<h2>Education Crowdfunding DApp</h2>
+
+<button onclick="connectWallet()">Connect MetaMask</button>
+
+<div class="status">
+  <p id="account">Address: Not connected</p>
+  <p id="balance">ETH Balance: 0</p>
+  <p id="tokenBalance">EDU Token Balance: 0</p> </div>
+
+<hr>
+
+<h3>Create Campaign</h3>
+<input id="title" placeholder="Title">
+<input id="goal" type="number" placeholder="Goal in ETH">
+<button onclick="createCampaign()">Create</button>
+
+<h3>Donate</h3>
+<input id="campaignId" type="number" placeholder="Campaign ID (e.g. 0)">
+<input id="amount" type="number" step="0.01" placeholder="ETH amount">
+<button onclick="donate()">Donate</button>
+
+<h3>Campaign List</h3>
+<button onclick="loadCampaigns()">Refresh List</button>
+<div id="campaignList" style="margin-top: 10px; border: 1px solid #ccc; padding: 10px;"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+
+<script>
+const crowdfundingAddress = "0x0B306BF915C4d645ff596e518fAf3F9669b97016"; 
+const tokenAddress = "0x9A676e781A523b5d0C0e43731313A708CB607508"; 
+
+const crowdfundingABI = [
+  "function createCampaign(string _title, uint256 _goal, uint256 _duration)",
+  "function contribute(uint256 id) payable",
+  "function campaigns(uint256) view returns (address, string, uint256, uint256, uint256, bool)"
+];
+
+const tokenABI = [
+  "function balanceOf(address owner) view returns (uint256)"
+];
+
+let signer;
+let crowdfundingContract;
+let tokenContract;
+
+async function connectWallet() {
+  if (!window.ethereum) {
+    alert("Please install MetaMask!");
+    return;
+  }
+
+  const provider = new ethers.providers.Web3Provider(window.ethereum);
+  await provider.send("eth_requestAccounts", []);
+  signer = provider.getSigner();
+
+  const address = await signer.getAddress();
+  document.getElementById("account").innerText = "Address: " + address;
+
+  // Network Check Local Network
+  const network = await provider.getNetwork();
+  console.log("Connected to network:", network.name);
+
+
+
+  if (network.chainId === 1) {
+    alert("Critical error: Mainnet usage prohibited! Switch to Local.");
+    return; // Stops the execution of the script
+}
+
+
+
+  // Updating balances
+  updateBalances(address, provider);
+
+  // Initialization of contracts
+  crowdfundingContract = new ethers.Contract(crowdfundingAddress, crowdfundingABI, signer);
+  tokenContract = new ethers.Contract(tokenAddress, tokenABI, signer);
+
+  alert("Connected to " + address);
+}
+
+async function updateBalances(address, provider) {
+  // ETH Balance
+  const ethBalance = await provider.getBalance(address);
+  document.getElementById("balance").innerText = "ETH Balance: " + ethers.utils.formatEther(ethBalance);
+
+  // EDU Token Balance
+  if (tokenContract) {
+    const eduBalance = await tokenContract.balanceOf(address);
+    document.getElementById("tokenBalance").innerText = "EDU Token Balance: " + ethers.utils.formatUnits(eduBalance, 18);
+  }
+}
+
+async function createCampaign() {
+  try {
+    const title = document.getElementById("title").value;
+    const goalEth = document.getElementById("goal").value;
+    const goalWei = ethers.utils.parseEther(goalEth);
+    const duration = 86400 * 7; // 7 days in seconds
+
+    const tx = await crowdfundingContract.createCampaign(title, goalWei, duration);
+    console.log("Pending...");
+    await tx.wait();
+    alert("Campaign Created!");
+  } catch (err) {
+    console.error(err);
+    alert("Error: " + err.reason);
+  }
+}
+
+async function donate() {
+  try {
+    const id = document.getElementById("campaignId").value;
+    const amountEth = document.getElementById("amount").value;
+
+    const tx = await crowdfundingContract.contribute(id, {
+      value: ethers.utils.parseEther(amountEth)
+    });
+    console.log("Donating...");
+    await tx.wait();
+    
+    alert("Donation Successful!");
+    const address = await signer.getAddress();
+    updateBalances(address, signer.provider); // Updating tokens after a donation
+  } catch (err) {
+    console.error(err);
+    alert("Error: " + err.reason);
+  }
+}
+
+
+
+//Update list 
+async function loadCampaigns() {
+    const listDiv = document.getElementById("campaignList");
+    listDiv.innerHTML = "Loading...";
+    try {
+        
+        // but Solidity does not give the array length automatically via call
+        let html = "";
+        for (let i = 0; i < 5; i++) {
+            try {
+                const c = await crowdfundingContract.campaigns(i);
+                html += `<div><strong>ID ${i}:</strong> ${c.title} | Goal: ${ethers.utils.formatEther(c.goal)} ETH | Raised: ${ethers.utils.formatEther(c.amountRaised)} ETH</div><hr>`;
+            } catch (e) { break; } // If there is no campaign with this ID, we exit the loop
+        }
+        listDiv.innerHTML = html || "No campaigns found.";
+    } catch (err) {
+        listDiv.innerHTML = "Error loading campaigns.";
+    }
+}
+</script>
+
+
+</body>
+</html>
